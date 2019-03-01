@@ -1,19 +1,16 @@
 import pickle
 import time
-import copy
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import offsetbox
 from matplotlib.colors import ListedColormap
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-
-import scipy.stats as spst
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
+
+import deepdish as dd
 
 from train_test_net import Net
 
@@ -117,17 +114,25 @@ if __name__ == "__main__":
     if flag_plot_tSNE:
         plot_tSNE(testloader, labels, num_samples=10000, name="", title="accuray: {0}%".format(acc_full))
 
-    ko_layer = 0  # only works for layer 0
-    ko_units = np.random.choice(np.arange(layers[ko_layer]), size=99, replace=False)
+    ko_layers = np.arange(len(layers))
+    ko_results = dict()
+    for ko_layer in ko_layers:
+        ko_results["layer_{0}".format(ko_layer)] = dict()
+        ko_units = np.arange(layers[ko_layer])
+        for ko_unit in ko_units:
+            print("knockout layer {0}, unit {1}".format(ko_layer, ko_unit))
+            net_trained.load_state_dict(torch.load("../nets/MNIST_MLP_{0}_trained.pt".format(layers)))
+            net_trained.eval()
 
-    print("knockout layer {0}, unit {1}".format(ko_layer, ko_units))
-    net_trained.load_state_dict(torch.load("../nets/MNIST_MLP_{0}_trained.pt".format(layers)))
-    net_trained.eval()
-    for ko_unit in ko_units:
-        net_trained.__getattr__("h{0}".format(ko_layer)).weight.data[ko_unit, :] = torch.zeros(784)
-        net_trained.__getattr__("h{0}".format(ko_layer)).bias.data[ko_unit] = 0
-    acc, labels_ko, acc_class, _ = net_trained.test_net(criterion, testloader, device)
-    print(acc)
-    print(labels_ko)
-    print(acc_class)
-    print(acc_class.mean())  # NOTE: This does not equal to the calculated total accuracy as the distribution of labels is not equal in the test set!
+            n_inputs = layers[ko_layer-1] if ko_layer != 0 else 784
+            net_trained.__getattr__("h{0}".format(ko_layer)).weight.data[ko_unit, :] = torch.zeros(n_inputs)
+            net_trained.__getattr__("h{0}".format(ko_layer)).bias.data[ko_unit] = 0
+            acc, labels, acc_class, labels_class = net_trained.test_net(criterion, testloader, device)
+
+            # append to results dict
+            ko_results["layer_{0}".format(ko_layer)]["unit_{0}".format(ko_unit)] = {"acc": np.array([acc]),
+                                                                                    "labels": labels,
+                                                                                    "acc_class": acc_class,
+                                                                                    "labels_class": labels_class}
+
+    dd.io.save("../data/results/ko_results.h5", ko_results, compression=None)
